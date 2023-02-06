@@ -3,6 +3,9 @@
 *ggthemer* is a Shiny module that adds graphical user interface (GUI) to
 control many theme elements of the *ggplot2*-generated plots.
 
+Live version is available [here](https://dzmitry.shinyapps.io/ggthemer/)
+(accessibility is subject to monthly allowance).
+
 ### Installation
 
     if (!require("devtools", quietly = T)) {
