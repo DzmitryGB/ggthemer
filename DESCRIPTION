@@ -1,0 +1,28 @@
+Package: ggthemer
+Type: Package
+Title: Shiny Module for ggplot2 Theme Modification
+Version: 0.1.0
+Author: Dzmitry G Batrakou
+Maintainer: Dzmitry G Batrakou <d.batrakou@gmail.com>
+Description: ggthemer is a Shiny module for modifying components of ggplot2 themes.
+    It provides two main functions, `ggthemerUI` that will generate user interface 
+    and `ggthemerSERV` which is the server part of the module.
+License: MIT
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.2.3
+Depends:
+    ggplot2,
+    shiny,
+    shinyBS
+Imports:
+    stats,
+    tools,
+    htmltools,
+    grDevices,
+    shinyjs,
+    colourpicker,
+    shinyWidgets,
+    showtext,
+    sysfonts
+    

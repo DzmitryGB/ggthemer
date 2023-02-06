@@ -1,0 +1,60 @@
+.ggtinline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px 5px;
+    justify-content: space-between;
+}
+
+.ggtinline.center {
+  align-items: center;
+}
+
+.ggtinline.bottom {
+    align-items: flex-end;
+}
+
+.ggtinline label {
+    font-weight: normal !important;
+    color: #337ab7;
+    margin: 0;
+    padding: 0 5px;
+}
+.ggtinline .label {
+    font-size: 100%;
+    font-weight: normal;
+    color: #337ab7;
+    margin: 0;
+    padding: 3px 5px;
+    width: 100%;
+}
+.ggtinline .label-primary {
+    color: #999;
+    background-color: #EEE !important;
+    border-radius: 3px;
+    width: 100%;
+    height: auto;
+    padding: 2px 10px;
+    margin: 3px 0;
+}
+.ggtinline .form-group {
+    margin-bottom: 0 !important;
+}
+.ggtinline .selectize-control {
+    margin-bottom: -5px;
+}
+
+.ggtinline .btn {
+    float:left;
+    clear:none;
+}
+
+.ggtinline .colourInput {
+    width: 50px;
+}
+.ggtinline .colourpicker {
+    width: 50px;
+}
+
+.ggtinline .selectize-control.single .selectize-input::after {
+  right: 5px;
+}
