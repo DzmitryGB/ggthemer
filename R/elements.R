@@ -83,21 +83,13 @@ get_theme_params <- function() {
 
 ### Replacement functions for the calc_element
 # calc_element: replace call to merge_elements
-calc_element2 <- function(element, theme, element_tree = get_element_tree(), verbose = FALSE, skip_blank = FALSE,
-                         call = caller_env()) {
-  if (verbose) message(element, " --> ", appendLF = FALSE)
+calc_element2 <- function(element, theme, element_tree = get_element_tree()) {
 
   el_out <- theme[[element]]
 
-  # If result is element_blank, we skip it if `skip_blank` is `TRUE`,
-  # and otherwise we don't inherit anything from parents
+  # If result is element_blank, we skip it
   if (inherits(el_out, "element_blank")) {
-    if (isTRUE(skip_blank)) {
-      el_out <- NULL
-    } else {
-      if (verbose) message("element_blank (no inheritance)")
       return(el_out)
-    }
   }
 
   # If the element is defined (and not just inherited), check that
@@ -106,8 +98,7 @@ calc_element2 <- function(element, theme, element_tree = get_element_tree(), ver
       !inherits(el_out, element_tree[[element]]$class)) {
     # allow legend.position to be numeric
     if (element != "legend.position" && inherits(el_out, "numeric")) {
-
-      cli::cli_abort("Theme element {.var {element}} must have class {.cls {ggplot_global$element_tree[[element]]$class}}", call = call)
+      stop("Theme element must have class as in element_tree")
   }}
 
   # Get the names of parents from the inheritance tree
@@ -115,8 +106,6 @@ calc_element2 <- function(element, theme, element_tree = get_element_tree(), ver
 
   # If no parents, this is a "root" node. Just return this element.
   if (is.null(pnames)) {
-    if (verbose) message("nothing (top level)")
-
     # Check that all the properties of this element are non-NULL
     nullprops <- vapply(el_out, is.null, logical(1))
     if (!any(nullprops)) {
@@ -129,22 +118,14 @@ calc_element2 <- function(element, theme, element_tree = get_element_tree(), ver
     if (!any(nullprops)) {
       return(el_out) # no null properties remaining, return element
     }
-
-    cli::cli_abort("Theme element {.var {element}} has {.val NULL} property without default: {.field {names(nullprops)[nullprops]}}", call = call)
+    stop("Theme element has property without default!")
   }
 
   # Calculate the parent objects' inheritance
-  if (verbose) message(paste(pnames, collapse = ", "))
   parents <- lapply(
     pnames,
-    calc_element,
-    theme,
-    verbose = verbose,
-    # once we've started skipping blanks, we continue doing so until the end of the
-    # recursion; we initiate skipping blanks if we encounter an element that
-    # doesn't inherit blank.
-    skip_blank = skip_blank || (!is.null(el_out) && !isTRUE(el_out$inherit.blank)),
-    call = call
+    calc_element2,
+    theme
   )
 
   # Combine the properties of this element with all parents

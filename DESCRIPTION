@@ -1,7 +1,7 @@
 Package: ggthemer
 Type: Package
 Title: Shiny Module for ggplot2 Theme Modification
-Version: 0.1.0
+Version: 0.1.1
 Author: Dzmitry G Batrakou
 Maintainer: Dzmitry G Batrakou <d.batrakou@gmail.com>
 Description: ggthemer is a Shiny module for modifying components of ggplot2 themes.

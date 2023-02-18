@@ -38,7 +38,10 @@ ggthemerSERV <- function(id, theme_store) {
 
         ###########################  Theme controls  ###########################
 
-        active <- reactiveValues( theme_selector = NULL, theme = NULL, base_theme = NULL )
+        active <- reactiveValues(
+            theme_selector = NULL, theme = NULL, base_theme = NULL,
+            txt_els = NULL, ln_els = NULL, rect_els = NULL
+        )
         theme_out <- reactiveValues( theme = NULL, name = NULL, store = NULL ) # this is returned by the module server function
 
         # update custom theme selector with available themes
@@ -187,8 +190,22 @@ ggthemerSERV <- function(id, theme_store) {
                 paste0("theme_", isolate(theme_store[[id]]$preview_theme[["base"]])),
                 isolate(theme_store[[id]]$preview_theme[["base_params"]])
             )
+            if (baseTheme$text$family == '') {
+                baseTheme$text$family <- "sans" # force display this in UI
+            }
+            # merge axis-specific elements, if identical
+            custom_params <- isolate(theme_store[[id]]$preview_theme[["custom_params"]])
+            if (any(duplicated(gsub("[.]y$", ".x", names(custom_params))))) {
+                dups <- names(custom_params)[duplicated(gsub("[.]y$", ".x", names(custom_params)))]
+                for (y in dups) {
+                    if (identical(custom_params[[y]], custom_params[[gsub("[.]y$", ".x", y)]])) {
+                        custom_params[[gsub("[.]y$", "", y)]] <- custom_params[[y]]
+                        custom_params[[y]] <- custom_params[[gsub("[.]y$", ".x", y)]] <- NULL
+                    }
+                }
+            }
             preTheme <- baseTheme +
-                do.call(theme, isolate(theme_store[[id]]$preview_theme[["custom_params"]]))
+                do.call(theme, custom_params)
 
             # SVG plot output: much faster than png-based plotOutput
             # https://github.com/rstudio/shiny/issues/2057#issuecomment-614683545
@@ -251,10 +268,10 @@ ggthemerSERV <- function(id, theme_store) {
                     "theme_", isolate(theme_store[[id]]$preview_theme[["base"]]), "(",
                     list2code(isolate(theme_store[[id]]$preview_theme[["base_params"]])), ")"
                 )
-                if (length(isolate(theme_store[[id]]$preview_theme[["custom_params"]]))) {
+                if (length(custom_params)) {
                     cmd <- paste0(cmd, " + theme(",
                     list2code(
-                        unclass(isolate(theme_store[[id]]$preview_theme[["custom_params"]])), delim = "\n    "
+                        unclass(custom_params), delim = "\n    "
                     ), "\n)")
                 }
                 cmd
@@ -297,13 +314,13 @@ ggthemerSERV <- function(id, theme_store) {
         # Text face
         observeEvent(input$plain, {
             if (input$plain) {
-                updateButton(session, ns("bold"), value = FALSE)
-                updateButton(session, ns("italic"), value = FALSE)
+                updateButton(session, ns("bold"), value = F)
+                updateButton(session, ns("italic"), value = F)
             }
         })
         observeEvent(c(input$bold, input$italic), {
             if (input$bold | input$italic) {
-                updateButton(session, ns("plain"), value = FALSE)
+                updateButton(session, ns("plain"), value = F)
             }
         })
 
@@ -320,57 +337,82 @@ ggthemerSERV <- function(id, theme_store) {
         # Text horizontal alignment: one button at a time
         observeEvent(input$align_left, {
             if (input$align_left) {
-                updateButton(session, ns("align_center"), value = FALSE)
-                updateButton(session, ns("align_right"), value = FALSE)
+                updateButton(session, ns("align_center"), value = F)
+                updateButton(session, ns("align_right"), value = F)
             }
         })
         observeEvent(input$align_center, {
             if (input$align_center) {
-                updateButton(session, ns("align_left"), value = FALSE)
-                updateButton(session, ns("align_right"), value = FALSE)
+                updateButton(session, ns("align_left"), value = F)
+                updateButton(session, ns("align_right"), value = F)
             }
         })
         observeEvent(input$align_right, {
             if (input$align_right) {
-                updateButton(session, ns("align_center"), value = FALSE)
-                updateButton(session, ns("align_left"), value = FALSE)
+                updateButton(session, ns("align_center"), value = F)
+                updateButton(session, ns("align_left"), value = F)
             }
         })
 
         # Text vertical alignment: one button at a time
         observeEvent(input$align_top, {
             if (input$align_top) {
-                updateButton(session, ns("align_middle"), value = FALSE)
-                updateButton(session, ns("align_bottom"), value = FALSE)
+                updateButton(session, ns("align_middle"), value = F)
+                updateButton(session, ns("align_bottom"), value = F)
             }
         })
         observeEvent(input$align_middle, {
             if (input$align_middle) {
-                updateButton(session, ns("align_top"), value = FALSE)
-                updateButton(session, ns("align_bottom"), value = FALSE)
+                updateButton(session, ns("align_top"), value = F)
+                updateButton(session, ns("align_bottom"), value = F)
             }
         })
         observeEvent(input$align_bottom, {
             if (input$align_bottom) {
-                updateButton(session, ns("align_top"), value = FALSE)
-                updateButton(session, ns("align_middle"), value = FALSE)
+                updateButton(session, ns("align_top"), value = F)
+                updateButton(session, ns("align_middle"), value = F)
             }
         })
 
-        observeEvent(input$text_element, {
-            clear_text_inputs(session) # reset controls
-            if (!isTruthy(input$text_element)) {
+        # update text UI
+        updateTextUI <- reactive({
+            txt_els <- input$text_element
+            if (!isTruthy(txt_els)) {
                 shinyjs::hide( "text_ctrls" )
+                shinyjs::hide( "text_element_axis_x" )
+                shinyjs::hide( "text_element_axis_y" )
+                active$txt_els <- NULL
                 return()
             }
             shinyjs::show( "text_ctrls" )
-            clicked$ID <- "text_element"
-            clicked$values <- input$text_element
-            # update controls when text element(s) selected
-            if (length(input$text_element) > 1) {
-                params <- intersect_elements(input$text_element, active$theme)
+            # Watch element selection for X/Y axis hide and seek
+            if (any( theme_ctrls$axis[theme_ctrls$id %in% txt_els] )) {
+                shinyjs::show( "text_element_axis_x" )
+                shinyjs::show( "text_element_axis_y" )
+                # update axis-specific values with .x or .y
+                txt_els <- update_axis(
+                    "text_element", txt_els, theme_ctrls,
+                    c(input$text_element_axis_x, input$text_element_axis_y)
+                )
             } else {
-                params <- active$theme[[input$text_element]]
+                shinyjs::hide( "text_element_axis_x" )
+                shinyjs::hide( "text_element_axis_y" )
+            }
+            # separate out axis-specific elements
+            axis_elements <- theme_ctrls$id[theme_ctrls$axis & theme_ctrls$id %in% txt_els]
+            if (length(axis_elements)) {
+                txt_els <- c(
+                    txt_els[!txt_els %in% axis_elements],
+                    paste0(axis_elements, ".x"),
+                    paste0(axis_elements, ".y")
+                )
+            }
+            active$txt_els <- txt_els
+            # update controls
+            if (length(txt_els) > 1) {
+                params <- intersect_elements(txt_els, active$theme)
+            } else {
+                params <- active$theme[[txt_els]]
             }
             if (length(params)) {
                 if ("colour" %in% names(params)) {
@@ -419,7 +461,7 @@ ggthemerSERV <- function(id, theme_store) {
                 }
                 if ("angle" %in% names(params)) {
                     if (params[["angle"]] %in% seq(-90, 90, by = 15)) {
-                        updateSelectInput(
+                        updateSelectizeInput(
                             session, "angle", selected = params[["angle"]]
                         )
                     }
@@ -435,20 +477,95 @@ ggthemerSERV <- function(id, theme_store) {
                     updateSelectInput(session, "margin_unit", selected = marg_unit)
                 }
             }
+        })
+
+        # text UI watchers
+        observeEvent(c(
+            input$text_element, input$text_element_axis_x, input$text_element_axis_y
+        ), {
+            clear_text_inputs(session)
+            updateTextUI()
         }, ignoreNULL = F, ignoreInit = T)
 
         # text element REMOVE button
         observeEvent(input$rm_text_element, {
-            clicked$ID <- "rm_text_element"
-            clicked$values <- isolate(input$text_element)
-            clear_text_inputs(session) # just in case
+            sapply(isolate(active$txt_els), function(x) {
+                theme_store[[id]]$preview_theme$custom_params[[x]] = element_blank()
+            })
+            clear_text_inputs(session)
         }, ignoreNULL = T, ignoreInit = T)
 
         # text element APPLY button
         observeEvent(input$apply_text_element, {
-            clicked$ID <- "apply_text_element"
-            clicked$values <- isolate(input$text_element)
-        }, ignoreNULL = T, ignoreInit = T)
+            txt_inputs <- list()
+            # colour
+            if (isolate(input$text_colour) != "transparent") {
+                txt_inputs$colour  <- gsub("gray", "grey", isolate(input$text_colour))
+            }
+            if (isTruthy(isolate(input$family))) {
+                txt_inputs$family  <- isolate(input$family)
+            }
+            if (isolate(input$size_toggle)) {
+                if (isTruthy(isolate(input$size_rel))) {
+                    txt_inputs$size <- rel(as.numeric(isolate(input$size_rel))/100)
+                }
+            } else {
+                # size (absolute)
+                if (isTruthy(isolate(input$size))) {
+                    txt_inputs$size <- as.numeric(isolate(input$size))
+                }
+            }
+            # font face
+            face <- c("plain", "bold", "italic")[isolate(c(
+                input$plain, input$bold, input$italic
+            ))]
+            if (length(face)) {
+                if (length(face) == 2) {
+                    txt_inputs$face <- "bold.italic"
+                } else { txt_inputs$face <- face }
+            }
+            # horizontal alignment
+            hjust <- c(0, 0.5, 1)[isolate(
+                c(input$align_left, input$align_center, input$align_right)
+            )]
+            if (length(hjust)) txt_inputs$hjust <- hjust
+            # vertical alignment
+            vjust <- c(0, 0.5, 1)[isolate(
+                c(input$align_bottom, input$align_middle, input$align_top)
+            )]
+            if (length(vjust)) txt_inputs$vjust <- vjust
+            # margin around text
+            marg <- isolate(list(
+                t = as.numeric(input$margin_top),
+                r = as.numeric(input$margin_right),
+                b = as.numeric(input$margin_bottom),
+                l = as.numeric(input$margin_left),
+                unit = input$margin_unit
+            ))
+            marg <- marg[!is.na(marg)]
+            if (length(marg) > 1) {
+                txt_inputs$margin <- do.call(margin, marg)
+            }
+            # Angle
+            if (isTruthy(isolate(input$angle))) {
+                txt_inputs$angle <- as.numeric(isolate(input$angle))
+            }
+            # update reactive values (using only differing params)
+            sapply(isolate(active$txt_els), function(x) {
+                # if the element is already in custom params, remove
+                if (x %in% names(isolate(theme_store[[id]]$preview_theme$custom_params))) {
+                    theme_store[[id]]$preview_theme$custom_params[[x]] <- NULL
+                }
+                # find differences between base theme and current element
+                diff_params <- setdiff.list( txt_inputs,
+                    unclass(active$base_theme[[x]]) )
+                if (length(diff_params)) {
+                    theme_store[[id]]$preview_theme$custom_params[[x]] <- do.call(
+                        element_text, diff_params
+                    )
+                }
+            }) # end of apply_text_element button actions
+        }, ignoreInit = T)
 
         ###########################  Line elements  ############################
 
@@ -475,18 +592,56 @@ ggthemerSERV <- function(id, theme_store) {
 
         observeEvent(input$line_element, {
             clear_line_inputs(session)
+            updateLineUI()
+        }, ignoreNULL = F, ignoreInit = T)
+
+        # line element axis buttons
+        observeEvent(c(input$line_element_axis_x, input$line_element_axis_y), {
+            clear_line_inputs(session)
+            updateLineUI()
+        })
+
+        # reactive to update line element UI controls
+        updateLineUI <- reactive({
             if (!isTruthy(input$line_element)) {
                 shinyjs::hide( "line_ctrls" )
+                shinyjs::hide( "line_element_axis_x" )
+                shinyjs::hide( "line_element_axis_y" )
+                active$ln_els <- NULL
                 return()
             }
             shinyjs::show( "line_ctrls" )
-            clicked$ID <- "line_element"
-            clicked$values <- input$line_element
-            if (length(input$line_element) > 1) {
-                params <- intersect_elements(input$line_element, active$theme)
+            ln_els <- input$line_element
+            # Watch element selection for X/Y axis hide and seek
+            if (any( theme_ctrls$axis[theme_ctrls$id %in% ln_els] )) {
+                shinyjs::show( "line_element_axis_x" )
+                shinyjs::show( "line_element_axis_y" )
+                # update axis-specific values with .x or .y
+                ln_els <- update_axis(
+                    "line_element", ln_els, theme_ctrls,
+                    c(input$line_element_axis_x, input$line_element_axis_y)
+                )
             } else {
-                params <- active$theme[[input$line_element]]
+                shinyjs::hide( "line_element_axis_x" )
+                shinyjs::hide( "line_element_axis_y" )
             }
+            # separate out axis-specific elements
+            axis_elements <- theme_ctrls$id[theme_ctrls$axis & theme_ctrls$id %in% ln_els]
+            if (length(axis_elements)) {
+                ln_els <- c(
+                    ln_els[!ln_els %in% axis_elements],
+                    paste0(axis_elements, ".x"),
+                    paste0(axis_elements, ".y")
+                )
+            }
+            active$ln_els <- ln_els
+            # extract common params, if multiple
+            if (length(ln_els) > 1) {
+                params <- intersect_elements(ln_els, active$theme)
+            } else {
+                params <- active$theme[[ln_els]]
+            }
+            # update UI
             if (length(params)) {
                 if ("colour" %in% names(params)) {
                     if (!grepl("^#", params[["colour"]])) {
@@ -511,14 +666,14 @@ ggthemerSERV <- function(id, theme_store) {
                     if (isTruthy(params[["arrow"]])) {
                         thisArrow <- unclass(params[["arrow"]])
                         if (thisArrow$type-1) {
-                            updateButton(session, ns("arrow_closed"), value = TRUE)
+                            updateButton(session, ns("arrow_closed"), value = T)
                         } else {
-                            updateButton(session, ns("arrow_open"), value = TRUE)
+                            updateButton(session, ns("arrow_open"), value = T)
                         }
                         if (thisArrow$ends %in% c(1, 3)) {
-                            updateButton(session, ns("arrow_left"), value = TRUE)
+                            updateButton(session, ns("arrow_left"), value = T)
                         } else {
-                            updateButton(session, ns("arrow_right"), value = TRUE)
+                            updateButton(session, ns("arrow_right"), value = T)
                         }
                         if (thisArrow$angle %in% seq(15, 45, by = 5)) {
                             updateSelectInput(session, "arrow_angle", selected = thisArrow$angle)
@@ -529,36 +684,124 @@ ggthemerSERV <- function(id, theme_store) {
                     }
                 }
             }
-        }, ignoreNULL = F, ignoreInit = T)
+        })
 
         # line element remove button
         observeEvent(input$rm_line_element, {
-            clicked$ID <- "rm_line_element"
-            clicked$values <- isolate(input$line_element)
+            sapply(isolate(active$ln_els), function(x) {
+                theme_store[[id]]$preview_theme$custom_params[[x]] = element_blank()
+            })
             clear_line_inputs(session)
         }, ignoreNULL = T, ignoreInit = T)
 
         # line element APPLY button
         observeEvent(input$apply_line_element, {
-            clicked$ID <- "apply_line_element"
-            clicked$values <- isolate(input$line_element)
-        }, ignoreNULL = T, ignoreInit = T)
+            line_inputs <- list()
+            # colour
+            if (isolate(input$line_colour) != "transparent") {
+                line_inputs$colour <- gsub("gray", "grey", isolate(input$line_colour))
+            }
+            # linetype
+            if (isolate(input$linetype) != "none") {
+                line_inputs$linetype <- isolate(input$linetype)
+            }
+            # linewidth (size previously)
+            if (isTruthy(isolate(input$linewidth))) {
+                line_inputs$linewidth <- as.numeric(isolate(input$linewidth))
+            }
+            # arrow
+            if (any(
+                isolate(c(input$arrow_open, input$arrow_closed))
+            )) {
+                arrCtrls <- list()
+                arrCtrls$type = c("open", "closed")[isolate(c(input$arrow_open, input$arrow_closed))]
+                if (isTruthy(isolate(input$arrow_angle))) {
+                    arrCtrls$angle <- as.numeric(isolate(input$arrow_angle))
+                }
+                if (isTruthy(isolate(input$arrow_length))) {
+                    arrCtrls$length <- unit(as.numeric(isolate(input$arrow_length)), "mm")
+                }
+                arrCtrls$ends <- "last" # default
+                ends <- c("first", "last")[isolate(c(input$arrow_left, input$arrow_right))]
+                if (length(ends) == 2) {
+                    arrCtrls$ends <- "both"
+                } else if (length(ends) == 1) {
+                    arrCtrls$ends <- ends
+                }
+                line_inputs$arrow = do.call(arrow, arrCtrls)
+            }
+
+            # update reactive values
+            sapply(isolate(active$ln_els), function(x) {
+                # if the element is already in custom params, remove
+                if (x %in% names(isolate(theme_store[[id]]$preview_theme$custom_params))) {
+                    theme_store[[id]]$preview_theme$custom_params[[x]] <- NULL
+                }
+                # find differences between base theme and current element
+                diff_params <- setdiff.list( line_inputs,
+                    unclass(active$base_theme[[x]]) )
+                if (length(diff_params)) {
+                    theme_store[[id]]$preview_theme$custom_params[[x]] <- do.call(
+                        element_line, diff_params
+                    )
+                }
+            }) # end of apply_line_element button actions
+        }, ignoreInit = T)
 
         ########################  Rectangle elements  ##########################
 
         observeEvent(input$rect_element, {
             clear_rect_inputs(session)
+            updateRectUI()
+        }, ignoreNULL = F, ignoreInit = T)
+
+        # rect element axis buttons
+        observeEvent(c(input$rect_element_axis_x, input$rect_element_axis_y), {
+            clear_rect_inputs(session)
+            updateRectUI()
+        })
+        # Update rectangle element UI controls
+        updateRectUI <- reactive({
             if (!isTruthy(input$rect_element)) {
                 shinyjs::hide( "rect_ctrls" )
+                shinyjs::hide( "rect_element_axis_x" )
+                shinyjs::hide( "rect_element_axis_y" )
+                active$rect_els <- NULL
                 return()
             }
             shinyjs::show( "rect_ctrls" )
-            clicked$ID <- "rect_element"
-            clicked$values <- input$rect_element
-            if (length(input$rect_element) > 1) {
-                params <- intersect_elements(input$rect_element, active$theme)
+            rect_els <- input$rect_element
+            # Watch element selection for X/Y axis hide and seek
+            if (any( theme_ctrls$axis[theme_ctrls$id %in% rect_els] )) {
+                shinyjs::show( "rect_element_axis_x" )
+                shinyjs::show( "rect_element_axis_y" )
+                # update axis-specific values with .x or .y
+                rect_els <- update_axis(
+                    "rect_element", rect_els, theme_ctrls,
+                    c(input$rect_element_axis_x, input$rect_element_axis_y)
+                )
             } else {
-                params <- active$theme[[input$rect_element]]
+                shinyjs::hide( "rect_element_axis_x" )
+                shinyjs::hide( "rect_element_axis_y" )
+            }
+            # separate out axis-specific elements
+            axis_elements <- theme_ctrls$id[theme_ctrls$axis & theme_ctrls$id %in% active$rect_els]
+            if (length(axis_elements)) {
+                rect_els <- c(
+                    rect_els[!rect_els %in% axis_elements],
+                    paste0(axis_elements, ".x"),
+                    paste0(axis_elements, ".y")
+                )
+            }
+            active$rect_els <- rect_els
+            rect_els <- update_axis(
+                "rect_element", rect_els, theme_ctrls,
+                isolate(c(input$rect_element_axis_x, input$rect_element_axis_y))
+            )
+            if (length(rect_els) > 1) {
+                params <- intersect_elements(rect_els, active$theme)
+            } else {
+                params <- active$theme[[rect_els]]
             }
             if (length(params)) {
                 if ("fill" %in% names(params)) {
@@ -587,237 +830,51 @@ ggthemerSERV <- function(id, theme_store) {
                     updateColourInput(session, "rect_colour", value = params[["colour"]])
                 }
             }
-        }, ignoreNULL = F, ignoreInit = T)
+        })
 
         # rect element remove button
         observeEvent(input$rm_rect_element, {
+            sapply(isolate(active$rect_els), function(x) {
+                theme_store[[id]]$preview_theme$custom_params[[x]] = element_blank()
+            })
             clear_rect_inputs(session)
-            clicked$ID <- "rm_rect_element"
-            clicked$values <- isolate(input$rect_element)
         }, ignoreNULL = T, ignoreInit = T)
 
         # rect element APPLY button
         observeEvent(input$apply_rect_element, {
-            clicked$ID <- "apply_rect_element"
-            clicked$values <- isolate(input$rect_element)
-        }, ignoreNULL = T, ignoreInit = T)
-
-
-        ####################  text/line/rect_element observer  #################
-
-        ###  Using reactive values to observe a number of similar buttons.
-        # 1. Reactive values that are updated by the rm*/apply* button observers
-        clicked <- reactiveValues(
-            ID = NULL, # button ID
-            values = NULL # elements to act on
-        ) # this will be observed and code reused
-
-        # 2. Observer function that will execute relevant code
-        observeEvent(c(clicked$ID, clicked$values), {
-
-            elements <- clicked$values # one or more elements of same type
-            if (!isTruthy(elements)) return()
-            # Watch element selection for X/Y axis hide and seek
-            if (grepl("^(text|line|rect)_element$", clicked$ID))  {
-                if (any( theme_ctrls$axis[theme_ctrls$id %in% elements] )) {
-                    shinyjs::show( paste0(clicked$ID, "_axis_x") )
-                    shinyjs::show( paste0(clicked$ID, "_axis_y") )
-                } else {
-                    shinyjs::hide( paste0(clicked$ID, "_axis_x") )
-                    shinyjs::hide( paste0(clicked$ID, "_axis_y") )
-                }
-                return()
+            rect_inputs <- list()
+            # Fill
+            # TODO: NA value (for no fill)
+            if (isolate(input$rect_fill) != "transparent") {
+                rect_inputs$fill <- gsub("gray", "grey", isolate(input$rect_fill))
             }
-
-            # Remove/apply buttons
-            if (grepl("^(rm|apply)_(text|line|rect)_element$", clicked$ID))  {
-
-                etype <- gsub("^(rm|apply)_", "", clicked$ID) # e.g. 'text_element'
-                # update axis-specific values with .x or .y
-                xy <- isolate(c(
-                    input[[paste0(etype, "_axis_x")]], input[[paste0(etype, "_axis_y")]]
-                ))
-                if (xor(xy[1], xy[2])) {
-                    axis_elements <- elements[theme_ctrls$axis[theme_ctrls$id %in% elements]]
-                    if (length(axis_elements)) {
-                        elements[ which(elements %in% axis_elements) ] <- paste0(
-                            axis_elements,  c(".x", ".y")[xy]
-                        )
-                    }
-                } # ignored if both/neither buttons are selected
-
-                # Remove element buttons
-                if (grepl("^rm_(text|line|rect)_element$", clicked$ID))  {
-                    # update reactive values
-                    sapply(elements, function(x) {
-                        theme_store[[id]]$preview_theme$custom_params[[x]] = element_blank()
-                    })
-
-                # Apply element buttons: text
-                } else if (clicked$ID == "apply_text_element") {
-                    txt_inputs <- list()
-                    # colour
-                    if (isolate(input$text_colour) != "transparent") {
-                        txt_inputs$colour  <- gsub("gray", "grey", isolate(input$text_colour))
-                    }
-                    if (isTruthy(isolate(input$family))) {
-                        txt_inputs$family  <- isolate(input$family)
-                    }
-                    if (isolate(input$size_toggle)) {
-                        if (isTruthy(isolate(input$size_rel))) {
-                            txt_inputs$size <- rel(as.numeric(isolate(input$size_rel))/100)
-                        }
-                    } else {
-                        # size (absolute)
-                        if (isTruthy(isolate(input$size))) {
-                            txt_inputs$size <- as.numeric(isolate(input$size))
-                        }
-                    }
-                    # font face
-                    face <- c("plain", "bold", "italic")[isolate(c(
-                        input$plain, input$bold, input$italic
-                    ))]
-                    if (length(face)) {
-                        if (length(face) == 2) {
-                            txt_inputs$face <- "bold.italic"
-                        } else { txt_inputs$face <- face }
-                    }
-                    # horizontal alignment
-                    hjust <- c(0, 0.5, 1)[isolate(
-                        c(input$align_left, input$align_center, input$align_right)
-                    )]
-                    if (length(hjust)) txt_inputs$hjust <- hjust
-                    # vertical alignment
-                    vjust <- c(0, 0.5, 1)[isolate(
-                        c(input$align_bottom, input$align_middle, input$align_top)
-                    )]
-                    if (length(vjust)) txt_inputs$vjust <- vjust
-                    # margin around text
-                    marg <- isolate(list(
-                        t = as.numeric(input$margin_top),
-                        r = as.numeric(input$margin_right),
-                        b = as.numeric(input$margin_bottom),
-                        l = as.numeric(input$margin_left),
-                        unit = input$margin_unit
-                    ))
-                    marg <- marg[!is.na(marg)]
-                    if (length(marg) > 1) {
-                        txt_inputs$margin <- do.call(margin, marg)
-                    }
-                    # Angle
-                    if (isTruthy(isolate(input$angle))) {
-                        txt_inputs$angle <- as.numeric(isolate(input$angle))
-                    }
-
-                    # update reactive values (using only differing params)
-                    sapply(elements, function(x) {
-                        # if the element is already in custom params, remove
-                        if (x %in% names(isolate(theme_store[[id]]$preview_theme$custom_params))) {
-                            theme_store[[id]]$preview_theme$custom_params[[x]] <- NULL
-                        }
-                        # find differences between base theme and current element
-                        diff_params <- setdiff.list( txt_inputs,
-                            unclass(active$base_theme[[x]]) )
-                        if (length(diff_params)) {
-                            theme_store[[id]]$preview_theme$custom_params[[x]] <- do.call(
-                                element_text, diff_params
-                            )
-                        }
-                    }) # end of apply_text_element button actions
-
-                # Apply element buttons: line
-                } else if (clicked$ID == "apply_line_element") {
-
-                    line_inputs <- list()
-                    # colour
-                    if (isolate(input$line_colour) != "transparent") {
-                        line_inputs$colour <- gsub("gray", "grey", isolate(input$line_colour))
-                    }
-                    # linetype
-                    if (isolate(input$linetype) != "none") {
-                        line_inputs$linetype <- isolate(input$linetype)
-                    }
-                    # linewidth (size previously)
-                    if (isTruthy(isolate(input$linewidth))) {
-                        line_inputs$linewidth <- as.numeric(isolate(input$linewidth))
-                    }
-                    # arrow
-                    if (any(
-                        isolate(c(input$arrow_open, input$arrow_closed))
-                    )) {
-                        arrCtrls <- list()
-                        arrCtrls$type = c("open", "closed")[isolate(c(input$arrow_open, input$arrow_closed))]
-                        if (isTruthy(isolate(input$arrow_angle))) {
-                            arrCtrls$angle <- as.numeric(isolate(input$arrow_angle))
-                        }
-                        if (isTruthy(isolate(input$arrow_length))) {
-                            arrCtrls$length <- unit(as.numeric(isolate(input$arrow_length)), "mm")
-                        }
-                        arrCtrls$ends <- "last" # default
-                        ends <- c("first", "last")[isolate(c(input$arrow_left, input$arrow_right))]
-                        if (length(ends) == 2) {
-                            arrCtrls$ends <- "both"
-                        } else if (length(ends) == 1) {
-                            arrCtrls$ends <- ends
-                        }
-                        line_inputs$arrow = do.call(arrow, arrCtrls)
-                    }
-
-                    # update reactive values
-                    sapply(elements, function(x) {
-                        # if the element is already in custom params, remove
-                        if (x %in% names(isolate(theme_store[[id]]$preview_theme$custom_params))) {
-                            theme_store[[id]]$preview_theme$custom_params[[x]] <- NULL
-                        }
-                        # find differences between base theme and current element
-                        diff_params <- setdiff.list( line_inputs,
-                            unclass(active$base_theme[[x]]) )
-                        if (length(diff_params)) {
-                            theme_store[[id]]$preview_theme$custom_params[[x]] <- do.call(
-                                element_line, diff_params
-                            )
-                        }
-                    }) # end of apply_line_element button actions
-
-                # Apply element buttons: rect
-                } else if (clicked$ID == "apply_rect_element") {
-
-                    rect_inputs <- list()
-                    # Fill
-                    # TODO: NA value (for no fill)
-                    if (isolate(input$rect_fill) != "transparent") {
-                        rect_inputs$fill <- gsub("gray", "grey", isolate(input$rect_fill))
-                    }
-                    # Linetype
-                    if (isTruthy(isolate(input$rect_linetype))) {
-                        rect_inputs$linetype <- isolate(input$rect_linetype)
-                    }
-                    # Linewidth
-                    if (isTruthy(isolate(input$rect_linewidth))) {
-                        rect_inputs$linewidth <- as.numeric(isolate(input$rect_linewidth))
-                    }
-                    # Line colour
-                    if (isolate(input$rect_colour) != "transparent") {
-                        rect_inputs$colour <- gsub("gray", "grey", isolate(input$rect_colour))
-                    }
-                    # update reactive values
-                    sapply(elements, function(x) {
-                        # if the element is already in custom params, remove
-                        if (x %in% names(isolate(theme_store[[id]]$preview_theme$custom_params))) {
-                            theme_store[[id]]$preview_theme$custom_params[[x]] <- NULL
-                        }
-                        # find differences between base theme and current element
-                        diff_params <- setdiff.list( rect_inputs,
-                            unclass(active$base_theme[[x]]) )
-                        if (length(diff_params)) {
-                            theme_store[[id]]$preview_theme$custom_params[[x]] <- do.call(
-                                element_rect, diff_params
-                            )
-                        }
-                    })
-                } # end of apply_rect_element button actions
-            } # end of rm/apply buttons actions
-
+            # Linetype
+            if (isTruthy(isolate(input$rect_linetype))) {
+                rect_inputs$linetype <- isolate(input$rect_linetype)
+            }
+            # Linewidth
+            if (isTruthy(isolate(input$rect_linewidth))) {
+                rect_inputs$linewidth <- as.numeric(isolate(input$rect_linewidth))
+            }
+            # Line colour
+            if (isolate(input$rect_colour) != "transparent") {
+                rect_inputs$colour <- gsub("gray", "grey", isolate(input$rect_colour))
+            }
+            # update reactive values
+            sapply(isolate(active$rect_els), function(x) {
+                # if the element is already in custom params, remove
+                if (x %in% names(isolate(theme_store[[id]]$preview_theme$custom_params))) {
+                    theme_store[[id]]$preview_theme$custom_params[[x]] <- NULL
+                }
+                # find differences between base theme and current element
+                diff_params <- setdiff.list( rect_inputs,
+                    unclass(active$base_theme[[x]]) )
+                if (length(diff_params)) {
+                    theme_store[[id]]$preview_theme$custom_params[[x]] <- do.call(
+                        element_rect, diff_params
+                    )
+                }
+            })
         }, ignoreInit = T)
 
         ###########################  Legend settings  ##########################
@@ -962,7 +1019,7 @@ clear_text_inputs <- function(session) {
     updateTextInput(session, "margin_top", value = "")
     updateTextInput(session, "margin_right", value = "")
     updateTextInput(session, "margin_bottom", value = "")
-    updateSliderTextInput(session, "angle", selected = "na")
+    updateSelectizeInput(session, "angle", selected = "")
 }
 
 #' Clear line inputs
@@ -991,3 +1048,16 @@ clear_rect_inputs <- function(session) {
     updateColourInput(session, "rect_colour", value = "transparent")
 }
 
+#' @keywords internal
+#'
+update_axis <- function(el_type, elements, theme_ctrls, xy) {
+    if (xor(xy[1], xy[2])) {
+        axis_elements <- elements[theme_ctrls$axis[theme_ctrls$id %in% elements]]
+        if (length(axis_elements)) {
+            elements[ which(elements %in% axis_elements) ] <- paste0(
+                axis_elements,  c(".x", ".y")[xy]
+            )
+        }
+    } # ignored if both/neither buttons are selected
+    return(elements)
+}
